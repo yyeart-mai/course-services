@@ -1,0 +1,1484 @@
+openapi: 3.0.3
+info:
+  title: Course service API
+  version: 1.0.0
+  description: |
+    Контракт учебного сервиса курсов, заданий и сдач решений.
+    Это целевой контракт; наличие операции здесь не означает её реализацию.
+
+    Пользователь определяется по внешнему JWT (sub — UUID пользователя,
+    role — admin, professor или student). Управление пользователями, выдача
+    токенов и запись на курсы находятся за границами этого API.
+    Admin управляет всеми курсами и заданиями, но не имеет доступа к сдачам,
+    ревью и артефактам. Professor работает только со своими курсами и их
+    заданиями/сдачами. Student читает свои курсы и задания, отправляет решения
+    и читает только собственные сдачи, ревью и артефакты.
+
+    DRAFT виден admin и назначенному professor. ACTIVE и CLOSED видны также
+    записанным студентам. Новые сдачи разрешены только для ACTIVE в интервале
+    [date_start 00:00, день после date_end 00:00) в Europe/Moscow.
+    Преподаватель может оценивать в любое время. Поля date_start/date_end
+    содержат календарные даты; временные метки ответов — ISO 8601 в UTC.
+
+    На пару student + assignment разрешено attempts_limit попыток (3–10,
+    по умолчанию 3). Все созданные сдачи, включая FAILED, расходуют попытку.
+    Отклонённые запросы не расходуют попытки. Проверка лимита и создание
+    сдачи атомарны. Сдачи нельзя изменять или удалять через этот API.
+
+    Все POST требуют Idempotency-Key (UUID). Ключ ограничен пользователем,
+    HTTP-методом и конкретным путём операции, включая идентификатор ресурса.
+    Повтор с семантически тем же JSON возвращает исходный HTTP-код, тело
+    и Location, не создаёт ресурс и не расходует попытку. Перестановка ключей
+    JSON не меняет содержимое запроса. Иное содержимое с тем же ключом — 409.
+    После аутентификации, проверки текущих прав и формата запроса повтор
+    распознаётся до повторной проверки дедлайна, статуса курса, лимита попыток
+    и наличия ревью. Ключ закрепляется за успешно созданным ресурсом;
+    отклонённый запрос не закрепляет ключ. Одновременные одинаковые запросы
+    дают один результат. Контракт не устанавливает срок истечения ключа.
+
+    Одна сдача имеет не более одного текущего Review. Внешняя автоматическая
+    проверка может создать type=auto. Professor создаёт отсутствующее ревью
+    через POST либо меняет существующее через PATCH; результат имеет
+    type=manual. Автоматика не перезаписывает manual-review, включая гонку
+    с ручным оцениванием. Финальным считается только manual-review.
+    Лучшей считается сдача с максимальным mark среди manual-review студента
+    по заданию; при равенстве выбирается более поздний submitted_at, затем
+    больший id для однозначности. Без manual-review финального результата нет.
+    Отдельный маршрут лучшего результата не предусмотрен.
+
+    Артефакты — файлы результатов внешней проверки. Этот API только возвращает
+    их метаданные и ссылки. Файлы решения студента передаются через
+    repository_url; загрузка файлов и внутренний API проверяющего сервиса
+    в контракт не входят. Ссылки на артефакты выдаются после проверки доступа.
+
+    Ошибки имеют application/json и оболочку error. Неверный ввод — 422,
+    отсутствие токена — 401, запрет роли или доступа к объекту — 403,
+    отсутствие ресурса или связанного объекта — 404, бизнес-конфликт — 409.
+    Проверка прав роли выполняется до поиска объекта; при существующем
+    недоступном объекте возвращается 403, при отсутствующем — 404.
+servers:
+  - url: http://127.0.0.1:8888
+    description: Локальная разработка
+tags:
+  - name: Courses
+    description: Курсы и назначение преподавателя
+  - name: Assignments
+    description: Задания курсов
+  - name: Submissions
+    description: Неизменяемые попытки сдачи решения
+  - name: Reviews
+    description: Текущее ревью и финальная оценка преподавателя
+  - name: Artifacts
+    description: Файлы результатов проверки
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/courses:
+    get:
+      tags: [Courses]
+      operationId: list_courses
+      summary: Получить страницу доступных курсов
+      description: |
+        Admin видит все курсы, professor — назначенные ему, student — курсы,
+        на которые записан, кроме DRAFT. Фильтры пересекаются с доступной
+        выборкой и не расширяют права. total считается после фильтрации
+        и ограничения прав, до offset/limit. Пустая страница возвращает 200.
+      x-roles: [admin, professor, student]
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          description: Статус курса.
+          schema:
+            $ref: '#/components/schemas/CourseStatus'
+        - name: teacher_id
+          in: query
+          description: UUID назначенного преподавателя.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Страница доступных курсов.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoursePage'
+              examples:
+                page:
+                  $ref: '#/components/examples/CoursePage'
+                empty:
+                  $ref: '#/components/examples/EmptyPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Courses]
+      operationId: create_course
+      summary: Создать курс
+      description: |
+        Только admin. Требуется ровно один существующий пользователь с ролью
+        professor в teacher_id. Отсутствующий пользователь — 404,
+        пользователь с другой ролью — 422. Статус по умолчанию DRAFT.
+      x-roles: [admin]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseCreate'
+            examples:
+              course:
+                $ref: '#/components/examples/CourseCreate'
+      responses:
+        '201':
+          description: Курс создан; повтор POST возвращает исходный результат.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseRead'
+              examples:
+                course:
+                  $ref: '#/components/examples/Course'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/courses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Courses]
+      operationId: get_course
+      summary: Получить доступный курс
+      description: |
+        Admin — любой курс; professor — назначенный ему; student — курс,
+        на который записан, со статусом ACTIVE или CLOSED.
+      x-roles: [admin, professor, student]
+      responses:
+        '200':
+          $ref: '#/components/responses/Course'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Courses]
+      operationId: update_course
+      summary: Частично изменить курс
+      description: |
+        Admin — любой курс; professor — только свой. teacher_id меняет только
+        admin, попытка professor передать это поле даёт 403 независимо от
+        значения. Новый преподаватель должен существовать и иметь роль
+        professor (404/422 соответственно). Пропущенные поля сохраняются,
+        null и пустой объект запрещены. Переходы между DRAFT, ACTIVE и CLOSED
+        разрешены без отдельного workflow; CLOSED можно снова открыть.
+        id и временные метки не принимаются.
+      x-roles: [admin, professor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoursePatch'
+            example:
+              status: CLOSED
+      responses:
+        '200':
+          description: Курс после частичного изменения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseRead'
+              examples:
+                closed:
+                  $ref: '#/components/examples/CourseClosed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Courses]
+      operationId: delete_course
+      summary: Удалить курс без заданий
+      description: |
+        Admin — любой курс; professor — только свой. Если есть хотя бы одно
+        задание, возвращается 409 COURSE_HAS_ASSIGNMENTS. Каскадного удаления
+        нет. Повторное удаление уже отсутствующего курса возвращает 404.
+      x-roles: [admin, professor]
+      responses:
+        '204':
+          description: Курс удалён. Тело отсутствует.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/DependencyConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/assignments:
+    get:
+      tags: [Assignments]
+      operationId: list_assignments
+      summary: Получить страницу доступных заданий
+      description: |
+        Admin видит все задания, professor — задания своих курсов, student —
+        задания курсов, на которые записан, кроме DRAFT. Даты определяют
+        возможность сдачи, но не скрывают само задание. course_id фильтрует
+        доступную выборку; отсутствие совпадений, включая неизвестный UUID
+        курса, даёт пустую страницу. total учитывает права и фильтр.
+      x-roles: [admin, professor, student]
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: course_id
+          in: query
+          description: UUID курса.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Страница доступных заданий.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentPage'
+              examples:
+                page:
+                  $ref: '#/components/examples/AssignmentPage'
+                empty:
+                  $ref: '#/components/examples/EmptyPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Assignments]
+      operationId: create_assignment
+      summary: Создать задание курса
+      description: |
+        Admin — в любом курсе; professor — только в своём. course_id должен
+        указывать на существующий доступный курс (404/403). date_start не позже
+        date_end. attempts_limit по умолчанию 3, materials_urls — пустой массив.
+        Создание и изменение заданий допускается при любом статусе курса;
+        статус ACTIVE требуется именно для новой сдачи.
+      x-roles: [admin, professor]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentCreate'
+            examples:
+              assignment:
+                $ref: '#/components/examples/AssignmentCreate'
+      responses:
+        '201':
+          description: Задание создано; повтор POST возвращает исходный результат.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentRead'
+              examples:
+                assignment:
+                  $ref: '#/components/examples/Assignment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/IdempotencyConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/assignments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Assignments]
+      operationId: get_assignment
+      summary: Получить доступное задание
+      description: |
+        Admin — любое задание; professor — задание своего курса; student —
+        задание курса, на который записан, кроме курса в DRAFT.
+      x-roles: [admin, professor, student]
+      responses:
+        '200':
+          $ref: '#/components/responses/Assignment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Assignments]
+      operationId: update_assignment
+      summary: Частично изменить задание
+      description: |
+        Admin — любое задание; professor — задание своего курса.
+        Пропущенные поля сохраняются, null и пустой объект запрещены.
+        materials_urls заменяет список целиком; [] очищает его.
+        date_start <= date_end проверяется по итоговому состоянию с учётом
+        сохранённых дат. Изменение лимита не удаляет и не пересчитывает
+        созданные попытки: новый лимит применяется к следующим сдачам.
+        course_id, id и временные метки изменять нельзя.
+      x-roles: [admin, professor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentPatch'
+            example:
+              attempts_limit: 5
+      responses:
+        '200':
+          description: Задание после частичного изменения.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentRead'
+              examples:
+                updated:
+                  $ref: '#/components/examples/AssignmentUpdated'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Assignments]
+      operationId: delete_assignment
+      summary: Удалить задание без сдач
+      description: |
+        Admin — любое задание; professor — задание своего курса. При наличии
+        хотя бы одной сдачи — 409 ASSIGNMENT_HAS_SUBMISSIONS. Каскадного
+        удаления нет. Повторное удаление отсутствующего задания — 404.
+      x-roles: [admin, professor]
+      responses:
+        '204':
+          description: Задание удалено. Тело отсутствует.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/DependencyConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/submissions:
+    post:
+      tags: [Submissions]
+      operationId: create_submission
+      summary: Отправить решение на проверку
+      description: |
+        Только student, записанный на курс задания. student_id берётся из JWT,
+        передавать его в теле нельзя. Создаётся неизменяемая попытка со статусом
+        SUBMITTED, submitted_at — серверное время. Ответ 201 означает создание
+        попытки, а не завершение асинхронной проверки; статус читается через GET.
+        Курс должен быть ACTIVE, текущий момент — внутри срока задания,
+        число попыток студента — меньше attempts_limit. Нарушение — 409.
+        Одновременные запросы не могут превысить лимит. Идемпотентный повтор
+        возвращает исходную сдачу даже после дедлайна или исчерпания лимита,
+        если пользователь всё ещё имеет доступ к заданию.
+      x-roles: [student]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmissionCreate'
+            examples:
+              submission:
+                $ref: '#/components/examples/SubmissionCreate'
+      responses:
+        '201':
+          description: Попытка создана; повтор POST возвращает исходный результат.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionRead'
+              examples:
+                accepted:
+                  $ref: '#/components/examples/SubmissionAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/SubmissionConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/submissions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Submissions]
+      operationId: get_submission
+      summary: Получить свою или доступную преподавателю сдачу
+      description: |
+        Student — только собственная сдача; professor — сдача задания своего
+        курса. Admin запрещён. Закрытие курса, дедлайн или перевод курса в
+        DRAFT не скрывают ранее созданную сдачу от её автора.
+      x-roles: [professor, student]
+      responses:
+        '200':
+          description: Сдача и текущее состояние проверки.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmissionRead'
+              examples:
+                accepted:
+                  $ref: '#/components/examples/SubmissionAccepted'
+                completed:
+                  $ref: '#/components/examples/SubmissionCompleted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/submissions/{id}/review:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Reviews]
+      operationId: get_review
+      summary: Получить текущее ревью сдачи
+      description: |
+        Student — автор сдачи; professor — преподаватель её курса.
+        Admin запрещён. Возвращается текущее auto или manual ревью.
+        Отсутствующая сдача — 404 SUBMISSION_NOT_FOUND; существующая сдача
+        без ревью — 404 REVIEW_NOT_FOUND. Финальным считается только manual.
+      x-roles: [professor, student]
+      responses:
+        '200':
+          description: Текущее предварительное или финальное ревью.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewRead'
+              examples:
+                auto:
+                  $ref: '#/components/examples/ReviewAuto'
+                manual:
+                  $ref: '#/components/examples/ReviewManual'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    post:
+      tags: [Reviews]
+      operationId: create_review
+      summary: Создать ручное ревью сдачи
+      description: |
+        Только professor курса сдачи. Создаёт Review с type=manual, если
+        ревью ещё нет. Существующее auto или manual ревью — 409
+        REVIEW_ALREADY_EXISTS: для изменения используется PATCH.
+        Идемпотентный повтор возвращает исходное ревью до проверки его наличия.
+        Оценивать можно до и после дедлайна, при любом статусе курса и сдачи.
+        mark и PASSED/FAILED задаются независимо, автоматического порога нет.
+      x-roles: [professor]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewCreate'
+            examples:
+              review:
+                $ref: '#/components/examples/ReviewCreate'
+      responses:
+        '201':
+          description: Ручное ревью создано; повтор POST возвращает исходный результат.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewRead'
+              examples:
+                review:
+                  $ref: '#/components/examples/ReviewManual'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ReviewConflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [Reviews]
+      operationId: update_review
+      summary: Изменить ревью и подтвердить финальную оценку
+      description: |
+        Только professor курса сдачи. Меняет существующее ревью; пропущенные
+        поля сохраняются. Даже частичное изменение auto-review устанавливает
+        type=manual и подтверждает итоговые mark, feedback и status.
+        id и created_at сохраняются, updated_at обновляется. null и пустое
+        тело запрещены; type нельзя передать в запросе. Автоматика после
+        этого не может изменить ревью. Отсутствующая сдача или ревью — 404.
+      x-roles: [professor]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewPatch'
+            example:
+              mark: 9.5
+              feedback: Решение принято после ручной проверки.
+              status: PASSED
+      responses:
+        '200':
+          $ref: '#/components/responses/Review'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/submissions/{id}/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Artifacts]
+      operationId: get_artifacts
+      summary: Получить файлы результатов проверки сдачи
+      description: |
+        Student — автор сдачи; professor — преподаватель её курса.
+        Admin запрещён. Возвращает метаданные и ссылки, не содержимое файлов.
+        Если сдача существует, но файлов ещё нет, возвращает 200 и [].
+        Отсутствующая сдача — 404 SUBMISSION_NOT_FOUND. Список формируется
+        внешней проверкой; операции загрузки в этом API нет.
+      x-roles: [professor, student]
+      responses:
+        '200':
+          description: Файлы результатов проверки или пустой массив.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArtifactRead'
+              examples:
+                files:
+                  value:
+                    - name: test-report.json
+                      content_type: application/json
+                      download_url: https://artifacts.example.com/submissions/33333333-3333-4333-8333-333333333333/test-report.json
+                empty:
+                  value: []
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT внешнего сервиса. sub содержит UUID пользователя, role — admin,
+        professor или student. Проверяются подпись, срок действия и права.
+        x-roles документирует роли и не заменяет проверку доступа к объекту.
+  headers:
+    Location:
+      description: |
+        Путь созданного ресурса: /api/v1/courses/{id},
+        /api/v1/assignments/{id}, /api/v1/submissions/{id} или
+        /api/v1/submissions/{id}/review. При повторе POST значение сохраняется.
+      schema:
+        type: string
+      example: /api/v1/courses/11111111-1111-4111-8111-111111111111
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      description: UUID ресурса; для вложенных review/artifacts — UUID сдачи.
+      schema:
+        type: string
+        format: uuid
+      example: 11111111-1111-4111-8111-111111111111
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        UUID для однократного создания ресурса в области пользователя + метода
+        + конкретного пути. Одинаковые ключ и JSON возвращают исходный 201,
+        тело и Location. Другое содержимое — 409 IDEMPOTENCY_KEY_CONFLICT.
+        Отсутствие — 422 IDEMPOTENCY_KEY_MISSING; неверный UUID — 422
+        VALIDATION_ERROR. Повторы распознаются до повторной проверки
+        бизнес-ограничений. Подробные правила заданы в info.description.
+      schema:
+        type: string
+        format: uuid
+      example: 77777777-7777-4777-8777-777777777777
+    Offset:
+      name: offset
+      in: query
+      description: Смещение в доступной отфильтрованной выборке; любое целое >= 0.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    Limit:
+      name: limit
+      in: query
+      description: Максимальное число элементов в странице.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+    Sort:
+      name: sort
+      in: query
+      description: |
+        Направление сортировки по created_at. При равенстве created_at
+        всегда используется id по возрастанию. Иное значение — 422.
+      schema:
+        type: string
+        enum: ['created_at:asc', 'created_at:desc']
+        default: created_at:desc
+  schemas:
+    UUID:
+      type: string
+      format: uuid
+    ServerId:
+      type: string
+      format: uuid
+      readOnly: true
+      description: Идентификатор, сформированный сервером.
+    Timestamp:
+      type: string
+      format: date-time
+      readOnly: true
+      description: Серверная временная метка ISO 8601 в UTC.
+      example: '2026-10-24T10:00:00Z'
+    HttpUrl:
+      type: string
+      format: uri
+      pattern: '^https?://'
+      description: Абсолютная HTTP(S)-ссылка.
+    CourseTitle:
+      type: string
+      minLength: 15
+      maxLength: 255
+    CourseDescription:
+      type: string
+      minLength: 32
+      maxLength: 4096
+    CourseStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, CLOSED]
+      description: |
+        DRAFT — черновик, виден admin и назначенному professor.
+        ACTIVE — допускает сдачи в сроки задания.
+        CLOSED — виден для чтения, новые сдачи запрещены.
+    InitialCourseStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, CLOSED]
+      default: DRAFT
+      description: Начальный статус; при отсутствии DRAFT.
+    AssignmentText:
+      type: string
+      minLength: 1
+      description: Непустой текст; дополнительных ограничений длины нет.
+    AttemptsLimit:
+      type: integer
+      minimum: 3
+      maximum: 10
+    Materials:
+      type: array
+      description: Список ссылок на материалы задания; [] означает отсутствие материалов.
+      items:
+        $ref: '#/components/schemas/HttpUrl'
+    SubmissionStatus:
+      type: string
+      enum: [SUBMITTED, PROCESSING, COMPLETED, FAILED]
+      description: |
+        SUBMITTED — принято, в том числе ожидает запуска проверки.
+        PROCESSING — идёт автоматическая проверка.
+        COMPLETED — автоматическая проверка закончилась технически успешно,
+        независимо от оценки; FAILED — техническая ошибка проверки.
+        Допустимые переходы автоматики: SUBMITTED -> PROCESSING ->
+        COMPLETED/FAILED, а при ошибке запуска SUBMITTED -> FAILED.
+        Ручное ревью не меняет этот статус. COMPLETED не означает наличие
+        финальной оценки; FAILED не означает учебную оценку «не сдано».
+    ReviewMark:
+      type: number
+      format: float
+      minimum: 0
+      maximum: 10
+      description: Оценка от 0 до 10 включительно; дробные значения разрешены.
+    ReviewStatus:
+      type: string
+      enum: [PASSED, FAILED]
+      description: Учебный результат, задаётся явно и не вычисляется из mark.
+    CourseCreate:
+      type: object
+      additionalProperties: false
+      required: [title, description, teacher_id]
+      properties:
+        title:
+          $ref: '#/components/schemas/CourseTitle'
+        description:
+          $ref: '#/components/schemas/CourseDescription'
+        teacher_id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          $ref: '#/components/schemas/InitialCourseStatus'
+    CoursePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          $ref: '#/components/schemas/CourseTitle'
+        description:
+          $ref: '#/components/schemas/CourseDescription'
+        teacher_id:
+          type: string
+          format: uuid
+          description: Только admin; передача professor возвращает 403.
+        status:
+          $ref: '#/components/schemas/CourseStatus'
+    CourseRead:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, teacher_id, status, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ServerId'
+        title:
+          $ref: '#/components/schemas/CourseTitle'
+        description:
+          $ref: '#/components/schemas/CourseDescription'
+        teacher_id:
+          $ref: '#/components/schemas/UUID'
+        status:
+          $ref: '#/components/schemas/CourseStatus'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    AssignmentCreate:
+      type: object
+      additionalProperties: false
+      required: [title, description, course_id, date_start, date_end]
+      description: date_start <= date_end; равенство означает односуточный интервал сдачи.
+      properties:
+        title:
+          $ref: '#/components/schemas/AssignmentText'
+        description:
+          $ref: '#/components/schemas/AssignmentText'
+        course_id:
+          $ref: '#/components/schemas/UUID'
+        attempts_limit:
+          type: integer
+          minimum: 3
+          maximum: 10
+          default: 3
+        date_start:
+          type: string
+          format: date
+        date_end:
+          type: string
+          format: date
+        materials_urls:
+          type: array
+          default: []
+          items:
+            $ref: '#/components/schemas/HttpUrl'
+    AssignmentPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |
+        Непустое частичное изменение. Порядок дат проверяется после объединения
+        с сохранёнными значениями. Никакие значения по умолчанию не применяются.
+      properties:
+        title:
+          $ref: '#/components/schemas/AssignmentText'
+        description:
+          $ref: '#/components/schemas/AssignmentText'
+        attempts_limit:
+          $ref: '#/components/schemas/AttemptsLimit'
+        date_start:
+          type: string
+          format: date
+        date_end:
+          type: string
+          format: date
+        materials_urls:
+          $ref: '#/components/schemas/Materials'
+    AssignmentRead:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, course_id, attempts_limit, date_start, date_end, materials_urls, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ServerId'
+        title:
+          $ref: '#/components/schemas/AssignmentText'
+        description:
+          $ref: '#/components/schemas/AssignmentText'
+        course_id:
+          $ref: '#/components/schemas/UUID'
+        attempts_limit:
+          $ref: '#/components/schemas/AttemptsLimit'
+        date_start:
+          type: string
+          format: date
+        date_end:
+          type: string
+          format: date
+        materials_urls:
+          $ref: '#/components/schemas/Materials'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    SubmissionCreate:
+      type: object
+      additionalProperties: false
+      required: [assignment_id, repository_url]
+      properties:
+        assignment_id:
+          $ref: '#/components/schemas/UUID'
+        repository_url:
+          type: string
+          format: uri
+          description: Абсолютный URI репозитория с решением.
+    SubmissionRead:
+      type: object
+      additionalProperties: false
+      required: [id, assignment_id, student_id, submitted_at, review_id, repository_url, status, artifacts_url, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ServerId'
+        assignment_id:
+          $ref: '#/components/schemas/UUID'
+        student_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Автор сдачи, определяется по sub в JWT.
+        submitted_at:
+          $ref: '#/components/schemas/Timestamp'
+        review_id:
+          type: string
+          format: uuid
+          nullable: true
+          readOnly: true
+          description: UUID текущего ревью; null, пока ревью отсутствует.
+        repository_url:
+          type: string
+          format: uri
+        status:
+          $ref: '#/components/schemas/SubmissionStatus'
+        artifacts_url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+          nullable: true
+          readOnly: true
+          description: |
+            Абсолютная ссылка на GET /api/v1/submissions/{id}/artifacts
+            текущего сервиса, когда есть файлы; null, если файлов ещё нет.
+            Получение по ссылке требует того же Bearer JWT и проверки прав.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ReviewCreate:
+      type: object
+      additionalProperties: false
+      required: [feedback, mark, status]
+      properties:
+        feedback:
+          type: string
+          description: Комментарий преподавателя; допускается пустая строка.
+        mark:
+          $ref: '#/components/schemas/ReviewMark'
+        status:
+          $ref: '#/components/schemas/ReviewStatus'
+    ReviewPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        feedback:
+          type: string
+          description: Новый комментарий; пустая строка очищает его.
+        mark:
+          $ref: '#/components/schemas/ReviewMark'
+        status:
+          $ref: '#/components/schemas/ReviewStatus'
+    ReviewRead:
+      type: object
+      additionalProperties: false
+      required: [id, type, feedback, mark, status, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/ServerId'
+        type:
+          type: string
+          enum: [auto, manual]
+          readOnly: true
+          description: auto — предварительное ревью; manual — финальная оценка.
+        feedback:
+          type: string
+        mark:
+          $ref: '#/components/schemas/ReviewMark'
+        status:
+          $ref: '#/components/schemas/ReviewStatus'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    ArtifactRead:
+      type: object
+      additionalProperties: false
+      required: [name, content_type, download_url]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Имя файла результата проверки.
+        content_type:
+          type: string
+          minLength: 1
+          description: MIME-тип файла.
+        download_url:
+          $ref: '#/components/schemas/HttpUrl'
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: [offset, limit, total]
+      properties:
+        offset:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+          description: Размер доступной отфильтрованной выборки до пагинации.
+    CoursePage:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/CourseRead'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    AssignmentPage:
+      type: object
+      additionalProperties: false
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AssignmentRead'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, status, path, request_id]
+          properties:
+            code:
+              type: string
+              minLength: 1
+              description: Стабильный машинный код из каталога ошибок.
+            message:
+              type: string
+              minLength: 1
+              description: Описание ошибки; клиент не должен разбирать его как код.
+            status:
+              type: integer
+              enum: [401, 403, 404, 409, 422]
+              description: Совпадает с HTTP-кодом ответа.
+            path:
+              type: string
+              pattern: '^/api/v1/'
+              description: Конкретный путь запроса без query string.
+            request_id:
+              type: string
+              format: uuid
+              description: Идентификатор текущего запроса, сформированный сервером.
+  responses:
+    Course:
+      description: Состояние курса на момент ответа.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/CourseRead'
+          examples:
+            course:
+              $ref: '#/components/examples/Course'
+    Assignment:
+      description: Состояние задания на момент ответа.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AssignmentRead'
+          examples:
+            assignment:
+              $ref: '#/components/examples/Assignment'
+    Review:
+      description: Текущее ревью; после PATCH всегда type=manual.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ReviewRead'
+          examples:
+            manual:
+              $ref: '#/components/examples/ReviewManual'
+    Unauthorized:
+      description: |
+        JWT отсутствует (TOKEN_MISSING), неверен (TOKEN_INVALID) либо истёк
+        (TOKEN_EXPIRED). Выдача токенов находится вне этого API.
+      headers:
+        WWW-Authenticate:
+          description: Требуется Bearer JWT.
+          schema:
+            type: string
+          example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missing:
+              value:
+                error:
+                  code: TOKEN_MISSING
+                  message: Токен отсутствует.
+                  status: 401
+                  path: /api/v1/courses
+                  request_id: 88888888-8888-4888-8888-888888888888
+    Forbidden:
+      description: |
+        ACCESS_DENIED — роль не разрешена, нет доступа к объекту либо
+        professor пытается изменить teacher_id. Admin не получает исключения
+        для сдач, ревью и артефактов.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            denied:
+              value:
+                error:
+                  code: ACCESS_DENIED
+                  message: Нет доступа к этому ресурсу или операции.
+                  status: 403
+                  path: /api/v1/submissions/33333333-3333-4333-8333-333333333333
+                  request_id: 88888888-8888-4888-8888-888888888888
+    NotFound:
+      description: |
+        Ресурс или связанный объект отсутствует. Коды: COURSE_NOT_FOUND,
+        ASSIGNMENT_NOT_FOUND, SUBMISSION_NOT_FOUND, REVIEW_NOT_FOUND,
+        TEACHER_NOT_FOUND. Для вложенного review отсутствие сдачи имеет
+        SUBMISSION_NOT_FOUND, отсутствие только ревью — REVIEW_NOT_FOUND.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            course:
+              value:
+                error:
+                  code: COURSE_NOT_FOUND
+                  message: Курс не найден.
+                  status: 404
+                  path: /api/v1/courses/11111111-1111-4111-8111-111111111111
+                  request_id: 88888888-8888-4888-8888-888888888888
+            review:
+              value:
+                error:
+                  code: REVIEW_NOT_FOUND
+                  message: Ревью сдачи ещё не создано.
+                  status: 404
+                  path: /api/v1/submissions/33333333-3333-4333-8333-333333333333/review
+                  request_id: 88888888-8888-4888-8888-888888888888
+    ValidationError:
+      description: |
+        VALIDATION_ERROR — неверный JSON, UUID, тип, диапазон, URL, даты,
+        sort, неизвестное поле, пустой PATCH или null вместо значения.
+        IDEMPOTENCY_KEY_MISSING — отсутствует обязательный заголовок POST.
+        TEACHER_ROLE_REQUIRED — teacher_id указывает на пользователя,
+        который не является professor. Нарушение date_start <= date_end
+        также является VALIDATION_ERROR.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            invalid:
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: attempts_limit должен быть целым числом от 3 до 10.
+                  status: 422
+                  path: /api/v1/assignments
+                  request_id: 88888888-8888-4888-8888-888888888888
+            missingKey:
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_MISSING
+                  message: Заголовок Idempotency-Key обязателен.
+                  status: 422
+                  path: /api/v1/submissions
+                  request_id: 88888888-8888-4888-8888-888888888888
+    IdempotencyConflict:
+      description: IDEMPOTENCY_KEY_CONFLICT — ключ уже связан с другим содержимым.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            conflict:
+              $ref: '#/components/examples/IdempotencyConflict'
+    SubmissionConflict:
+      description: |
+        IDEMPOTENCY_KEY_CONFLICT — ключ связан с другим содержимым;
+        COURSE_NOT_ACTIVE — курс не ACTIVE; SUBMISSION_NOT_STARTED — срок ещё
+        не начался; SUBMISSION_DEADLINE_PASSED — срок закончился;
+        SUBMISSION_LIMIT_REACHED — использованы все attempts_limit попыток.
+        Для нового запроса проверки выполняются в указанном порядке:
+        статус курса, начало срока, окончание срока, лимит попыток.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            keyConflict:
+              $ref: '#/components/examples/IdempotencyConflict'
+            limit:
+              value:
+                error:
+                  code: SUBMISSION_LIMIT_REACHED
+                  message: Достигнут лимит попыток этого задания.
+                  status: 409
+                  path: /api/v1/submissions
+                  request_id: 88888888-8888-4888-8888-888888888888
+            deadline:
+              value:
+                error:
+                  code: SUBMISSION_DEADLINE_PASSED
+                  message: Срок сдачи задания закончился.
+                  status: 409
+                  path: /api/v1/submissions
+                  request_id: 88888888-8888-4888-8888-888888888888
+            notStarted:
+              value:
+                error:
+                  code: SUBMISSION_NOT_STARTED
+                  message: Срок сдачи задания ещё не начался.
+                  status: 409
+                  path: /api/v1/submissions
+                  request_id: 88888888-8888-4888-8888-888888888888
+            inactiveCourse:
+              value:
+                error:
+                  code: COURSE_NOT_ACTIVE
+                  message: Новые сдачи разрешены только в активном курсе.
+                  status: 409
+                  path: /api/v1/submissions
+                  request_id: 88888888-8888-4888-8888-888888888888
+    DependencyConflict:
+      description: |
+        COURSE_HAS_ASSIGNMENTS — курс содержит задания;
+        ASSIGNMENT_HAS_SUBMISSIONS — задание содержит сдачи.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            course:
+              value:
+                error:
+                  code: COURSE_HAS_ASSIGNMENTS
+                  message: Нельзя удалить курс с заданиями.
+                  status: 409
+                  path: /api/v1/courses/11111111-1111-4111-8111-111111111111
+                  request_id: 88888888-8888-4888-8888-888888888888
+            assignment:
+              value:
+                error:
+                  code: ASSIGNMENT_HAS_SUBMISSIONS
+                  message: Нельзя удалить задание со сдачами.
+                  status: 409
+                  path: /api/v1/assignments/22222222-2222-4222-8222-222222222222
+                  request_id: 88888888-8888-4888-8888-888888888888
+    ReviewConflict:
+      description: |
+        REVIEW_ALREADY_EXISTS — у сдачи уже есть auto или manual ревью;
+        IDEMPOTENCY_KEY_CONFLICT — ключ связан с другим содержимым.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            exists:
+              value:
+                error:
+                  code: REVIEW_ALREADY_EXISTS
+                  message: Ревью уже существует; используйте PATCH.
+                  status: 409
+                  path: /api/v1/submissions/33333333-3333-4333-8333-333333333333/review
+                  request_id: 88888888-8888-4888-8888-888888888888
+            keyConflict:
+              $ref: '#/components/examples/IdempotencyConflict'
+  examples:
+    CourseCreate:
+      summary: Создание активного курса администратором
+      value:
+        title: Backend-разработка на Python
+        description: Учебный курс по проектированию HTTP API и разработке сервисов на Python.
+        teacher_id: 55555555-5555-4555-8555-555555555555
+        status: ACTIVE
+    Course:
+      value:
+        id: 11111111-1111-4111-8111-111111111111
+        title: Backend-разработка на Python
+        description: Учебный курс по проектированию HTTP API и разработке сервисов на Python.
+        teacher_id: 55555555-5555-4555-8555-555555555555
+        status: ACTIVE
+        created_at: '2026-10-20T09:00:00Z'
+        updated_at: '2026-10-20T09:00:00Z'
+    CoursePage:
+      value:
+        data:
+          - id: 11111111-1111-4111-8111-111111111111
+            title: Backend-разработка на Python
+            description: Учебный курс по проектированию HTTP API и разработке сервисов на Python.
+            teacher_id: 55555555-5555-4555-8555-555555555555
+            status: ACTIVE
+            created_at: '2026-10-20T09:00:00Z'
+            updated_at: '2026-10-20T09:00:00Z'
+        pagination:
+          offset: 0
+          limit: 10
+          total: 1
+    CourseClosed:
+      summary: Результат PATCH с status=CLOSED
+      value:
+        id: 11111111-1111-4111-8111-111111111111
+        title: Backend-разработка на Python
+        description: Учебный курс по проектированию HTTP API и разработке сервисов на Python.
+        teacher_id: 55555555-5555-4555-8555-555555555555
+        status: CLOSED
+        created_at: '2026-10-20T09:00:00Z'
+        updated_at: '2026-10-24T11:00:00Z'
+    EmptyPage:
+      summary: Смещение за пределами выборки
+      value:
+        data: []
+        pagination:
+          offset: 100
+          limit: 10
+          total: 1
+    AssignmentCreate:
+      value:
+        title: HTTP и проектирование REST API
+        description: Подготовить контракт сервиса курсов в формате OpenAPI YAML.
+        course_id: 11111111-1111-4111-8111-111111111111
+        attempts_limit: 3
+        date_start: '2026-10-24'
+        date_end: '2026-11-01'
+        materials_urls:
+          - https://spec.openapis.org/oas/v3.0.3.html
+    Assignment:
+      value:
+        id: 22222222-2222-4222-8222-222222222222
+        title: HTTP и проектирование REST API
+        description: Подготовить контракт сервиса курсов в формате OpenAPI YAML.
+        course_id: 11111111-1111-4111-8111-111111111111
+        attempts_limit: 3
+        date_start: '2026-10-24'
+        date_end: '2026-11-01'
+        materials_urls:
+          - https://spec.openapis.org/oas/v3.0.3.html
+        created_at: '2026-10-21T09:00:00Z'
+        updated_at: '2026-10-21T09:00:00Z'
+    AssignmentPage:
+      value:
+        data:
+          - id: 22222222-2222-4222-8222-222222222222
+            title: HTTP и проектирование REST API
+            description: Подготовить контракт сервиса курсов в формате OpenAPI YAML.
+            course_id: 11111111-1111-4111-8111-111111111111
+            attempts_limit: 3
+            date_start: '2026-10-24'
+            date_end: '2026-11-01'
+            materials_urls:
+              - https://spec.openapis.org/oas/v3.0.3.html
+            created_at: '2026-10-21T09:00:00Z'
+            updated_at: '2026-10-21T09:00:00Z'
+        pagination:
+          offset: 0
+          limit: 10
+          total: 1
+    AssignmentUpdated:
+      summary: Результат PATCH с attempts_limit=5
+      value:
+        id: 22222222-2222-4222-8222-222222222222
+        title: HTTP и проектирование REST API
+        description: Подготовить контракт сервиса курсов в формате OpenAPI YAML.
+        course_id: 11111111-1111-4111-8111-111111111111
+        attempts_limit: 5
+        date_start: '2026-10-24'
+        date_end: '2026-11-01'
+        materials_urls:
+          - https://spec.openapis.org/oas/v3.0.3.html
+        created_at: '2026-10-21T09:00:00Z'
+        updated_at: '2026-10-24T11:00:00Z'
+    SubmissionCreate:
+      value:
+        assignment_id: 22222222-2222-4222-8222-222222222222
+        repository_url: https://git.example.com/student/course-labs
+    SubmissionAccepted:
+      value:
+        id: 33333333-3333-4333-8333-333333333333
+        assignment_id: 22222222-2222-4222-8222-222222222222
+        student_id: 66666666-6666-4666-8666-666666666666
+        submitted_at: '2026-10-24T10:00:00Z'
+        review_id: null
+        repository_url: https://git.example.com/student/course-labs
+        status: SUBMITTED
+        artifacts_url: null
+        created_at: '2026-10-24T10:00:00Z'
+        updated_at: '2026-10-24T10:00:00Z'
+    SubmissionCompleted:
+      value:
+        id: 33333333-3333-4333-8333-333333333333
+        assignment_id: 22222222-2222-4222-8222-222222222222
+        student_id: 66666666-6666-4666-8666-666666666666
+        submitted_at: '2026-10-24T10:00:00Z'
+        review_id: 44444444-4444-4444-8444-444444444444
+        repository_url: https://git.example.com/student/course-labs
+        status: COMPLETED
+        artifacts_url: http://127.0.0.1:8888/api/v1/submissions/33333333-3333-4333-8333-333333333333/artifacts
+        created_at: '2026-10-24T10:00:00Z'
+        updated_at: '2026-10-24T10:05:00Z'
+    ReviewCreate:
+      value:
+        feedback: Решение принято после ручной проверки.
+        mark: 9.5
+        status: PASSED
+    ReviewManual:
+      value:
+        id: 44444444-4444-4444-8444-444444444444
+        type: manual
+        feedback: Решение принято после ручной проверки.
+        mark: 9.5
+        status: PASSED
+        created_at: '2026-10-24T10:05:00Z'
+        updated_at: '2026-10-24T10:05:00Z'
+    ReviewAuto:
+      summary: Предварительное ревью, ещё не финальная оценка
+      value:
+        id: 44444444-4444-4444-8444-444444444444
+        type: auto
+        feedback: Автоматические тесты выполнены; требуется подтверждение преподавателя.
+        mark: 8
+        status: PASSED
+        created_at: '2026-10-24T10:03:00Z'
+        updated_at: '2026-10-24T10:03:00Z'
+    IdempotencyConflict:
+      value:
+        error:
+          code: IDEMPOTENCY_KEY_CONFLICT
+          message: Ключ уже использован с другим содержимым запроса.
+          status: 409
+          path: /api/v1/submissions
+          request_id: 88888888-8888-4888-8888-888888888888
