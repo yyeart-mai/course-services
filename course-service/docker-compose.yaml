@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:18.1-bookworm
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:?required}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
+      - POSTGRES_DB=${POSTGRES_DB:?required}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+  postgres-test:
+    image: postgres:18.1-bookworm
+    profiles: ["test"]
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:?required}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
+      - POSTGRES_DB=${POSTGRES_DB:?required}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pg_test_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pg_data:
+  pg_test_data:

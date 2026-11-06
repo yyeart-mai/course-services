@@ -19,4 +19,4 @@ if __name__ == "src.main":
     settings = get_settings()
     routers = (service_router,)
     app = create_app(settings, routers, lifespan=lifespan_app)
-    logger.debug("Created app=%s with settings=%s", app, settings)
+    logger.debug("Created app version=%s", settings.app.version)

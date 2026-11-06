@@ -3,6 +3,7 @@
 import functools
 from typing import final
 
+from pydantic import AnyHttpUrl, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +22,14 @@ class Settings(BaseSettings):
     """Load service configuration from environment variables and .env."""
 
     app: AppSettings
+    database_url: str
+    jwt_secret: SecretStr
+    checker_url: AnyHttpUrl
+    checker_timeout_seconds: float = Field(default=5.0, gt=0)
+    checker_max_concurrency: int = Field(default=5, ge=1)
+    worker_poll_interval_seconds: float = Field(default=1.0, gt=0)
+    worker_lease_seconds: float = Field(default=30.0, gt=0)
+    checker_max_attempts: int = Field(default=3, ge=1)
 
     model_config = SettingsConfigDict(
         extra="allow",
