@@ -3,12 +3,18 @@
 import logging
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
-from src.core.services import get_settings_info
 from src.web.lifespans import lifespan_service_router
-from src.web.schemas import ServiceInfo
 
 logger = logging.getLogger(__name__)
+
+
+class ServiceInfo(BaseModel):
+    """Represent ServiceInfo data."""
+
+    healthy: bool = True
+
 
 service_router = APIRouter(
     prefix="/service",
@@ -25,4 +31,4 @@ service_router = APIRouter(
 )
 def info() -> ServiceInfo:
     """Returns service status"""
-    return get_settings_info()
+    return ServiceInfo()

@@ -1,8 +1,8 @@
 # course-services
 
-Учебный репозиторий backend-сервисов. Сейчас реализована основа `course-service`
-на FastAPI (настройки окружения, фабрика приложения, роут состояния сервиса,
-логирование и HTTP-тесты)
+Учебный репозиторий backend-сервисов. `course-service` реализует API курсов,
+заданий, сдач, ревью и артефактов на FastAPI. Сдачи проверяет отдельный
+воркер через HTTP-сервис.
 
 ## Контракт API (лабораторная № 2)
 
@@ -11,49 +11,12 @@
 
 ## Состав проекта
 
-### course-service/
-Приложение FastAPI, зависимости, настройки инструментов и тесты
-
-### bff/
-Заготовка сервиса .gitkeep
-
-### code-coordinator/
-Заготовка сервиса .gitkeep
-
-### plagiarism-service/
-Заготовка сервиса .gitkeep
-
-
-```text
-course-services/
-├── README.md
-├── .gitignore
-├── bff/
-├── code-coordinator/
-├── plagiarism-service/
-└── course-service/
-    ├── .env.example
-    ├── log-config.yaml
-    ├── pyproject.toml
-    ├── uv.lock
-    ├── src/
-    │   ├── __init__.py
-    │   ├── main.py
-    │   ├── core/
-    │   │   ├── __init__.py
-    │   │   ├── config.py
-    │   │   └── services.py
-    │   └── web/
-    │       ├── __init__.py
-    │       ├── app.py
-    │       ├── lifespans.py
-    │       ├── routers.py
-    │       └── schemas.py
-    └── tests/
-        ├── __init__.py
-        ├── conftest.py
-        └── test_app.py
-```
+- `course-service/src/` содержит маршруты, бизнес-логику, модели БД и воркер.
+- `course-service/alembic/` содержит миграции PostgreSQL.
+- `course-service/mock_checker.py` имитирует внешний сервис проверки.
+- `course-service/scripts/` содержит загрузку демонстрационных данных и эксперимент.
+- `course-service/tests/` содержит HTTP-тесты и проверки БД.
+- `bff/`, `code-coordinator/` и `plagiarism-service/` пока содержат заготовки.
 
 ## Локальная установка
 
@@ -76,14 +39,15 @@ uv sync --locked --group dev
 
 Все следующие команды выполняйте из `course-service/`
 
-## Настройка окружения
+## Настройка окружения и БД
 
 Создайте локальный файл настроек:
 
 ```bash
 cp .env.example .env
 ```
-Перед запуском заполните `.env`, например:
+Заполните `.env`. Значения пользователя, пароля и имени БД должны совпадать
+в `POSTGRES_*` и `DATABASE_URL`. Пример для локального запуска:
 
 ```dotenv
 APP__TITLE=Course service title
@@ -91,9 +55,40 @@ APP__DESCRIPTION=Course service description
 APP__SUMMARY=Course service summary
 APP__VERSION=0.1.0
 APP__DEBUG=false
+POSTGRES_USER=course
+POSTGRES_PASSWORD=local-password
+POSTGRES_DB=course
+DATABASE_URL=postgresql+asyncpg://course:local-password@127.0.0.1:5432/course
+JWT_SECRET=replace-with-a-long-random-secret-for-local-development
+CHECKER_URL=http://127.0.0.1:8889/check
+CHECKER_TIMEOUT_SECONDS=5
+CHECKER_MAX_CONCURRENCY=5
+CHECKER_MAX_ATTEMPTS=3
+WORKER_POLL_INTERVAL_SECONDS=1
+WORKER_LEASE_SECONDS=30
 ```
 
-## Запуск приложения
+Запустите PostgreSQL, примените миграцию и загрузите демонстрационные записи:
+
+```bash
+docker compose up -d postgres
+uv run alembic upgrade head
+uv run python -m scripts.seed_demo
+```
+
+Seed-команда выводит UUID администратора, преподавателя, студента и курса.
+Она добавляет записи только в локальную БД.
+
+## Запуск приложения и проверки
+
+Запустите три процесса в отдельных терминалах из `course-service/`.
+Сначала внешний mock:
+
+```bash
+uv run uvicorn mock_checker:app --host 127.0.0.1 --port 8889
+```
+
+Затем API:
 
 ```bash
 uv run uvicorn src.main:app \
@@ -105,6 +100,17 @@ uv run uvicorn src.main:app \
   --no-access-log \
   --log-config log-config.yaml
 ```
+
+И воркер, который забирает задания из PostgreSQL и вызывает mock:
+
+```bash
+uv run python -m src.checker.worker
+```
+
+Проверить доступность API можно через `http://127.0.0.1:8888/docs`.
+Защищённым маршрутам нужен подписанный Bearer JWT с `sub` в формате UUID,
+ролью `admin`, `professor` или `student` и сроком действия `exp`.
+Секрет подписи берётся из `JWT_SECRET`.
 
 ## Тесты
 
@@ -127,6 +133,31 @@ RUN_DB_TESTS=1 uv run pytest
 Тесты используют порт `5433` и применяют миграцию к тестовой БД. Остальные
 проверки можно запускать без контейнера `postgres-test`. Настройка
 `DATABASE_URL` должна указывать на локальную основную БД на порту `5432`.
+
+## Эксперимент с задержкой и конкурентностью
+
+Команда запускает локальный HTTP mock и выполняет по 10 вызовов на строку.
+Она измеряет HTTP-вызовы и ограничение конкурентности, а не время обработки
+очереди PostgreSQL.
+
+```bash
+uv run python -m scripts.experiment_checker
+```
+
+Результат одного запуска 11 ноября 2026 года на локальной машине:
+
+| Задержка mock, с | Предел вызовов | Таймаут, с | Общее время, с | Пик вызовов | Успехи | Таймауты |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.15 | 1 | 2.00 | 1.558 | 1 | 10 | 0 |
+| 0.15 | 5 | 2.00 | 0.326 | 5 | 10 | 0 |
+| 0.30 | 1 | 2.00 | 3.050 | 1 | 10 | 0 |
+| 0.30 | 5 | 2.00 | 0.624 | 5 | 10 | 0 |
+| 0.30 | 5 | 0.05 | 0.107 | 5 | 0 | 10 |
+
+При пределе 5 десять вызовов проходят двумя группами. В обоих успешных
+сценариях общее время оказалось примерно в 4.8 раза меньше, чем при пределе 1.
+При таймауте 0.05 с все вызовы с задержкой 0.30 с завершились по таймауту.
+Время зависит от машины и не служит нормативом производительности.
 
 ## Проверка качества кода
 

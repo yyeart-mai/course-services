@@ -1,3 +1,5 @@
+"""Load repeatable local users, a course, and an enrollment."""
+
 import asyncio
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -10,6 +12,7 @@ from src.core.models import Course, Enrollment, User
 
 
 def demo_id(name: str) -> UUID:
+    """Derive a stable UUID for a demonstration record."""
     return uuid5(NAMESPACE_URL, f"course-service-demo:{name}")
 
 
@@ -20,6 +23,7 @@ COURSE_ID = demo_id("course")
 
 
 async def seed_demo_data(session: AsyncSession) -> None:
+    """Create demonstration records that are not already present."""
     for user_id, role in (
         (ADMIN_ID, "admin"),
         (PROFESSOR_ID, "professor"),
@@ -58,6 +62,7 @@ async def seed_demo_data(session: AsyncSession) -> None:
 
 
 async def main() -> None:
+    """Load demonstration records into a local database."""
     settings = get_settings()
     url = make_url(settings.database_url)
 

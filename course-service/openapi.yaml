@@ -778,10 +778,10 @@ components:
         финальной оценки; FAILED не означает учебную оценку «не сдано».
     ReviewMark:
       type: number
-      format: float
       minimum: 0
       maximum: 10
-      description: Оценка от 0 до 10 включительно; дробные значения разрешены.
+      multipleOf: 0.01
+      description: Оценка от 0 до 10 включительно. Допускается не более двух знаков после запятой.
     ReviewStatus:
       type: string
       enum: [PASSED, FAILED]

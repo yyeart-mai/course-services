@@ -1,3 +1,5 @@
+"""Provide models operations."""
+
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -19,10 +21,13 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class Base(DeclarativeBase): ...
+class Base(DeclarativeBase):
+    """Base class for database models."""
 
 
 class Timestamps:
+    """Represent Timestamps data."""
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=text("now()"),
@@ -35,6 +40,8 @@ class Timestamps:
 
 
 class User(Base):
+    """Represent User data."""
+
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
@@ -48,6 +55,8 @@ class User(Base):
 
 
 class Enrollment(Base):
+    """Represent Enrollment data."""
+
     __tablename__ = "enrollments"
 
     student_id: Mapped[UUID] = mapped_column(
@@ -63,6 +72,8 @@ class Enrollment(Base):
 
 
 class Course(Timestamps, Base):
+    """Represent Course data."""
+
     __tablename__ = "courses"
     __table_args__ = (
         CheckConstraint(
@@ -85,6 +96,8 @@ class Course(Timestamps, Base):
 
 
 class Assignment(Timestamps, Base):
+    """Represent Assignment data."""
+
     __tablename__ = "assignments"
     __table_args__ = (
         CheckConstraint("date_start <= date_end", name="ck_assignments_dates"),
@@ -113,6 +126,8 @@ class Assignment(Timestamps, Base):
 
 
 class Submission(Timestamps, Base):
+    """Represent Submission data."""
+
     __tablename__ = "submissions"
     __table_args__ = (
         CheckConstraint(
@@ -140,6 +155,8 @@ class Submission(Timestamps, Base):
 
 
 class Review(Timestamps, Base):
+    """Represent Review data."""
+
     __tablename__ = "reviews"
     __table_args__ = (
         CheckConstraint("type IN ('auto', 'manual')", name="ck_reviews_type"),
@@ -160,6 +177,8 @@ class Review(Timestamps, Base):
 
 
 class Artifact(Base):
+    """Represent Artifact data."""
+
     __tablename__ = "artifacts"
     __table_args__ = (
         UniqueConstraint("submission_id", "name", name="uq_artifact_name"),
@@ -177,6 +196,8 @@ class Artifact(Base):
 
 
 class IdempotencyRecord(Base):
+    """Represent IdempotencyRecord data."""
+
     __tablename__ = "idempotency_records"
     __table_args__ = (
         UniqueConstraint(
@@ -204,6 +225,8 @@ class IdempotencyRecord(Base):
 
 
 class CheckJob(Base):
+    """Represent CheckJob data."""
+
     __tablename__ = "check_jobs"
     __table_args__ = (
         CheckConstraint(

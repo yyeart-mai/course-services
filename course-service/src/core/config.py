@@ -3,7 +3,7 @@
 import functools
 from typing import final
 
-from pydantic import AnyHttpUrl, Field, SecretStr
+from pydantic import AnyHttpUrl, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     worker_poll_interval_seconds: float = Field(default=1.0, gt=0)
     worker_lease_seconds: float = Field(default=30.0, gt=0)
     checker_max_attempts: int = Field(default=3, ge=1)
+
+    @model_validator(mode="after")
+    def check_worker_lease(self) -> Settings:
+        """Ensure a worker lease exceeds the checker timeout."""
+        margin_seconds = 5.0
+        if self.worker_lease_seconds <= self.checker_timeout_seconds + margin_seconds:
+            raise ValueError(
+                "worker_lease_seconds must exceed checker_timeout_seconds "
+                f"by at least {margin_seconds} seconds"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         extra="allow",

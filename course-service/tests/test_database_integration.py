@@ -3,13 +3,16 @@
 import os
 import subprocess
 import sys
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from scripts.seed_demo import (
     ADMIN_ID,
@@ -18,9 +21,19 @@ from scripts.seed_demo import (
     STUDENT_ID,
     seed_demo_data,
 )
+from src.checker.queue import claim_next_job, recover_expired_jobs
+from src.checker.worker import process_job
 from src.core.config import get_settings
 from src.core.database import create_database
-from src.core.models import Course, Enrollment, User
+from src.core.models import (
+    Assignment,
+    Base,
+    CheckJob,
+    Course,
+    Enrollment,
+    Submission,
+    User,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_TABLES = {
@@ -186,5 +199,167 @@ async def test_database_rejects_invalid_role_and_missing_relations(
                         await session.flush()
             finally:
                 await session.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_expired_jobs_recover_and_retry(test_database_url: str) -> None:
+    engine, _ = create_database(test_database_url)
+    settings = get_settings().model_copy(update={"checker_max_attempts": 3})
+    schema = f"checker_recovery_{uuid4().hex}"
+    professor_id, student_id = uuid4(), uuid4()
+    course_id, assignment_id = uuid4(), uuid4()
+    retry_submission_id, failed_submission_id = uuid4(), uuid4()
+    retry_job_id, failed_job_id = uuid4(), uuid4()
+    expired_lease = datetime.now(timezone.utc) - timedelta(minutes=1)
+
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.run_sync(Base.metadata.create_all)
+                sessions = async_sessionmaker(
+                    connection,
+                    expire_on_commit=False,
+                    join_transaction_mode="create_savepoint",
+                )
+
+                async with sessions.begin() as session:
+                    session.add_all(
+                        [
+                            User(id=professor_id, role="professor"),
+                            User(id=student_id, role="student"),
+                        ]
+                    )
+                    await session.flush()
+                    session.add(
+                        Course(
+                            id=course_id,
+                            teacher_id=professor_id,
+                            title="Recovery test",
+                            description="Recovery test",
+                            status="ACTIVE",
+                        )
+                    )
+                    await session.flush()
+                    session.add(
+                        Assignment(
+                            id=assignment_id,
+                            course_id=course_id,
+                            title="Recovery test",
+                            description="Recovery test",
+                            date_start=date.today(),
+                            date_end=date.today(),
+                        )
+                    )
+                    await session.flush()
+                    session.add_all(
+                        [
+                            Submission(
+                                id=retry_submission_id,
+                                assignment_id=assignment_id,
+                                student_id=student_id,
+                                repository_url="https://example.com/retry",
+                                status="PROCESSING",
+                            ),
+                            Submission(
+                                id=failed_submission_id,
+                                assignment_id=assignment_id,
+                                student_id=student_id,
+                                repository_url="https://example.com/failed",
+                                status="PROCESSING",
+                            ),
+                        ]
+                    )
+                    await session.flush()
+                    session.add_all(
+                        [
+                            CheckJob(
+                                id=retry_job_id,
+                                submission_id=retry_submission_id,
+                                status="RUNNING",
+                                attempts=settings.checker_max_attempts - 1,
+                                leased_until=expired_lease,
+                            ),
+                            CheckJob(
+                                id=failed_job_id,
+                                submission_id=failed_submission_id,
+                                status="RUNNING",
+                                attempts=settings.checker_max_attempts,
+                                leased_until=expired_lease,
+                            ),
+                        ]
+                    )
+
+                assert (
+                    await recover_expired_jobs(sessions, settings.checker_max_attempts)
+                    == 2
+                )
+
+                async with sessions() as session:
+                    retry_job = await session.get(CheckJob, retry_job_id)
+                    failed_job = await session.get(CheckJob, failed_job_id)
+                    retry_submission = await session.get(
+                        Submission, retry_submission_id
+                    )
+                    failed_submission = await session.get(
+                        Submission, failed_submission_id
+                    )
+                    assert retry_job is not None and retry_submission is not None
+                    assert failed_job is not None and failed_submission is not None
+                    assert (retry_job.status, retry_submission.status) == (
+                        "PENDING",
+                        "SUBMITTED",
+                    )
+                    assert (failed_job.status, failed_submission.status) == (
+                        "FAILED",
+                        "FAILED",
+                    )
+                    assert retry_job.leased_until is None
+                    assert failed_job.leased_until is None
+                    assert (
+                        retry_job.last_error == failed_job.last_error == "LEASE_EXPIRED"
+                    )
+
+                claimed = await claim_next_job(sessions, settings.worker_lease_seconds)
+                assert claimed is not None
+                assert claimed[:3] == (
+                    retry_job_id,
+                    settings.checker_max_attempts,
+                    retry_submission_id,
+                )
+
+                def checker_response(request: httpx.Request) -> httpx.Response:
+                    assert request.method == "POST"
+                    return httpx.Response(
+                        200,
+                        json={
+                            "submission_id": str(retry_submission_id),
+                            "status": "COMPLETED",
+                        },
+                    )
+
+                async with httpx.AsyncClient(
+                    transport=httpx.MockTransport(checker_response)
+                ) as client:
+                    await process_job(claimed, sessions, client, settings)
+
+                async with sessions() as session:
+                    retry_job = await session.get(CheckJob, retry_job_id)
+                    retry_submission = await session.get(
+                        Submission, retry_submission_id
+                    )
+                    failed_job = await session.get(CheckJob, failed_job_id)
+                    assert retry_job is not None and retry_submission is not None
+                    assert failed_job is not None
+                    assert retry_job.status == "DONE"
+                    assert retry_submission.status == "COMPLETED"
+                    assert retry_job.attempts == settings.checker_max_attempts
+                    assert failed_job.status == "FAILED"
+            finally:
+                await transaction.rollback()
     finally:
         await engine.dispose()
