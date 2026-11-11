@@ -1,8 +1,5 @@
-"""Provide assignment service operations."""
-
 # Pagination and filter fields match the public route parameters.
 # SQLAlchemy builds func.count dynamically.
-# pylint: disable=too-many-arguments,not-callable
 
 from uuid import UUID
 
@@ -30,7 +27,6 @@ async def require_assignment_access(
     *,
     lock: bool = False,
 ) -> Assignment:
-    """Load an assignment and enforce object access."""
     assignment = await session.get(Assignment, assignment_id, with_for_update=lock)
     if assignment is None:
         raise ApiError(404, "ASSIGNMENT_NOT_FOUND", "Assignment not found")
@@ -49,7 +45,6 @@ async def list_assignments(
     sort: SortOrder,
     course_id: UUID | None,
 ) -> AssignmentPage:
-    """List assignments."""
     condition = visible_course_condition(principal)
     if course_id is not None:
         condition = and_(condition, Assignment.course_id == course_id)
@@ -85,7 +80,6 @@ async def list_assignments(
 async def get_assignment(
     session: AsyncSession, assignment_id: UUID, principal: Principal
 ) -> AssignmentRead:
-    """Get assignment."""
     assignment = await require_assignment_access(session, assignment_id, principal)
 
     return AssignmentRead.model_validate(assignment)
@@ -97,7 +91,6 @@ async def create_assignment(
     body: AssignmentCreate,
     key: UUID,
 ) -> CreatedResponse:
-    """Create assignment."""
 
     async def authorize(tx: AsyncSession) -> None:
         await require_course_access(tx, body.course_id, principal, lock=True)
@@ -140,7 +133,6 @@ async def update_assignment(
     principal: Principal,
     body: AssignmentPatch,
 ) -> AssignmentRead:
-    """Update assignment."""
     changes = body.model_dump(exclude_unset=True)
     if "materials_urls" in changes:
         changes["materials_urls"] = [str(url) for url in body.materials_urls or []]
@@ -169,7 +161,6 @@ async def update_assignment(
 async def delete_assignment(
     session: AsyncSession, assignment_id: UUID, principal: Principal
 ) -> None:
-    """Delete assignment."""
     async with session.begin():
         assignment = await require_assignment_access(
             session, assignment_id, principal, lock=True

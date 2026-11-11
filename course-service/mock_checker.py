@@ -1,5 +1,3 @@
-"""Serve deterministic checker responses for local development."""
-
 import asyncio
 from typing import Annotated
 from uuid import UUID
@@ -13,7 +11,6 @@ app = FastAPI(title="Checker mock")
 
 
 class CheckRequest(BaseModel):
-    """Describe the request sent by the checker worker."""
 
     submission_id: UUID
     repository_url: AnyUrl
@@ -25,7 +22,6 @@ async def check(
     delay_seconds: Annotated[float, Query(ge=0)] = 0,
     fail: bool = False,
 ) -> CheckResult:
-    """Return a delayed success or a requested HTTP failure."""
     await asyncio.sleep(delay_seconds)
 
     if fail:

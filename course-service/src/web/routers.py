@@ -1,5 +1,3 @@
-"""Define routes for gettings service information"""
-
 import logging
 
 from fastapi import APIRouter
@@ -11,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class ServiceInfo(BaseModel):
-    """Represent ServiceInfo data."""
 
     healthy: bool = True
 
@@ -30,5 +27,4 @@ service_router = APIRouter(
     status_code=200,
 )
 def info() -> ServiceInfo:
-    """Returns service status"""
     return ServiceInfo()

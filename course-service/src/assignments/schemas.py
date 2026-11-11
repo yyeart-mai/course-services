@@ -1,5 +1,3 @@
-"""Provide schemas operations."""
-
 from datetime import date, datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -14,7 +12,6 @@ AttemptsLimit = Annotated[int, Field(strict=True, ge=3, le=10)]
 
 
 class AssignmentCreate(BaseModel):
-    """Represent AssignmentCreate data."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -28,14 +25,12 @@ class AssignmentCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_dates(self) -> "AssignmentCreate":
-        """Require the assignment start date to precede its end date."""
         if self.date_start > self.date_end:
             raise ValueError("date_start must not exceed date_end")
         return self
 
 
 class AssignmentPatch(BaseModel):
-    """Represent AssignmentPatch data."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -49,12 +44,10 @@ class AssignmentPatch(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_empty_or_null(cls, value: Any) -> Any:
-        """Reject an empty patch or null field values."""
         return validate_patch_payload(value)
 
 
 class AssignmentRead(BaseModel):
-    """Represent AssignmentRead data."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,7 +64,6 @@ class AssignmentRead(BaseModel):
 
 
 class AssignmentPage(BaseModel):
-    """Represent AssignmentPage data."""
 
     data: list[AssignmentRead] = Field(max_length=100)
     pagination: Pagination

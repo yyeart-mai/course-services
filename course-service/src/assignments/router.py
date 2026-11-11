@@ -1,7 +1,4 @@
-"""Provide assignment routes."""
-
 # FastAPI signatures and path parameter names follow the public API contract.
-# pylint: disable=too-many-arguments,too-many-positional-arguments,redefined-builtin
 
 from typing import Annotated
 from uuid import UUID
@@ -41,7 +38,6 @@ async def list_assignments(
     sort: SortOrder = "created_at:desc",
     course_id: UUID | None = None,
 ) -> AssignmentPage:
-    """List assignments."""
     assignments = await service.list_assignments(
         session,
         principal,
@@ -68,7 +64,6 @@ async def create_assignment(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     key: Annotated[UUID, Depends(get_idempotency_key)],
 ) -> JSONResponse:
-    """Create assignment."""
     result = await service.create_assignment(session, principal, body, key)
 
     return JSONResponse(
@@ -91,7 +86,6 @@ async def get_assignment(
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AssignmentRead:
-    """Get assignment."""
     assignment = await service.get_assignment(session, id, principal)
 
     return assignment
@@ -109,7 +103,6 @@ async def update_assignment(
     principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AssignmentRead:
-    """Update assignment."""
     updated_assignment = await service.update_assignment(session, id, principal, body)
 
     return updated_assignment
@@ -126,7 +119,6 @@ async def delete_assignment(
     principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
-    """Delete assignment."""
     await service.delete_assignment(session, id, principal)
 
     return Response(status_code=204)

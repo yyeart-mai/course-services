@@ -1,5 +1,3 @@
-"""Provide worker operations."""
-
 import asyncio
 from uuid import UUID
 
@@ -26,7 +24,6 @@ async def process_job(
     client: httpx.AsyncClient,
     settings: Settings,
 ) -> None:
-    """Send one claimed job to the checker and store its result."""
     job_id, attempt, submission_id, repository_url = claimed
 
     try:
@@ -97,7 +94,6 @@ async def _process_and_release(
 
 
 async def run_worker() -> None:
-    """Poll for checker jobs and process them concurrently."""
     settings = get_settings()
     engine, sessions = create_database(settings.database_url)
     slots = asyncio.Semaphore(settings.checker_max_concurrency)

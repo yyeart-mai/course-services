@@ -1,5 +1,3 @@
-"""Provide middleware operations."""
-
 import logging
 from contextvars import ContextVar
 from uuid import UUID, uuid4
@@ -12,7 +10,6 @@ request_id_context: ContextVar[str | None] = ContextVar("request_id", default=No
 
 
 class RequestIdMiddleware:
-    """Represent RequestIdMiddleware data."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app

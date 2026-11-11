@@ -1,5 +1,3 @@
-"""Provide dependencies operations."""
-
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Annotated, cast
@@ -16,7 +14,6 @@ from src.web.errors import ApiError
 
 @dataclass
 class Principal:
-    """Represent Principal data."""
 
     id: UUID
     role: str
@@ -32,7 +29,6 @@ async def get_principal(
     ],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> Principal:
-    """Validate a bearer token and identify its user."""
     if credentials is None:
         raise ApiError(401, "TOKEN_MISSING", "Token is missing")
 
@@ -58,7 +54,6 @@ async def get_principal(
 
 
 def require_roles(*allowed: str) -> Callable[[Principal], Awaitable[Principal]]:
-    """Build a dependency that enforces the allowed roles."""
 
     async def check(
         principal: Annotated[Principal, Depends(get_principal)],
@@ -72,7 +67,6 @@ def require_roles(*allowed: str) -> Callable[[Principal], Awaitable[Principal]]:
 
 
 async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """Yield a database session for one request."""
     sessions = cast(
         async_sessionmaker[AsyncSession],
         request.app.state.session_factory,

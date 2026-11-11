@@ -1,8 +1,5 @@
-"""Provide course service operations."""
-
 # Pagination and filter fields match the public route parameters.
 # SQLAlchemy builds func.count dynamically.
-# pylint: disable=too-many-arguments,not-callable
 
 from uuid import UUID
 
@@ -25,7 +22,6 @@ from src.web.pagination import Pagination, SortOrder
 
 
 def visible_course_condition(principal: Principal) -> ColumnElement[bool]:
-    """Build the course visibility filter for a user."""
     if principal.role == "admin":
         return true()
     if principal.role == "professor":
@@ -44,7 +40,6 @@ async def require_course_access(
     *,
     lock: bool = False,
 ) -> Course:
-    """Load a course and enforce object access."""
     course = await session.get(Course, course_id, with_for_update=lock)
     if course is None:
         raise ApiError(404, "COURSE_NOT_FOUND", "Course not found")
@@ -60,7 +55,6 @@ async def require_course_access(
 
 
 async def require_teacher(session: AsyncSession, teacher_id: UUID) -> None:
-    """Check that a user exists and has the professor role."""
     teacher = await session.get(User, teacher_id)
     if teacher is None:
         raise ApiError(404, "TEACHER_NOT_FOUND", "Teacher not found")
@@ -78,7 +72,6 @@ async def list_courses(
     status: CourseStatus | None,
     teacher_id: UUID | None,
 ) -> CoursePage:
-    """List courses."""
     condition = visible_course_condition(principal)
     if status is not None:
         condition = and_(condition, Course.status == status)
@@ -107,7 +100,6 @@ async def list_courses(
 async def get_course(
     session: AsyncSession, course_id: UUID, principal: Principal
 ) -> CourseRead:
-    """Get course."""
     course = await require_course_access(session, course_id, principal)
     return CourseRead.model_validate(course)
 
@@ -118,7 +110,6 @@ async def create_course(
     body: CourseCreate,
     key: UUID,
 ) -> CreatedResponse:
-    """Create course."""
 
     async def authorize(_session: AsyncSession) -> None:
         return None
@@ -153,7 +144,6 @@ async def update_course(
     principal: Principal,
     body: CoursePatch,
 ) -> CourseRead:
-    """Update course."""
     changes = body.model_dump(exclude_unset=True)
     if principal.role == "professor" and "teacher_id" in changes:
         raise ApiError(403, "ACCESS_DENIED", "Only admin can change teacher_id")
@@ -173,7 +163,6 @@ async def update_course(
 async def delete_course(
     session: AsyncSession, course_id: UUID, principal: Principal
 ) -> None:
-    """Delete course."""
     async with session.begin():
         course = await require_course_access(session, course_id, principal, lock=True)
 

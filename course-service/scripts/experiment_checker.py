@@ -1,5 +1,3 @@
-"""Measure checker HTTP calls with controlled delay and concurrency."""
-
 import asyncio
 import socket
 from contextlib import asynccontextmanager
@@ -16,7 +14,6 @@ from src.checker.client import call_checker
 
 @asynccontextmanager
 async def mock_url() -> AsyncIterator[str]:
-    """Run the checker mock on an available local port."""
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         listener.listen()
@@ -37,7 +34,6 @@ async def mock_url() -> AsyncIterator[str]:
 
 
 async def measure(url: str, delay: float, limit: int, timeout: float) -> None:
-    """Run ten checker calls and report elapsed time and peak concurrency."""
     slots = asyncio.Semaphore(limit)
     active = peak = successes = timeouts = 0
 
@@ -72,7 +68,6 @@ async def measure(url: str, delay: float, limit: int, timeout: float) -> None:
 
 
 async def main() -> None:
-    """Run the planned delay and concurrency combinations."""
     print("delay_s,limit,timeout_s,elapsed_s,peak,successes,timeouts")
     async with mock_url() as url:
         for delay in (0.15, 0.30):

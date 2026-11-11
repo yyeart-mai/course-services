@@ -1,7 +1,4 @@
-"""Provide checker queue operations."""
-
 # Failure handling receives claim details and retry policy separately.
-# pylint: disable=too-many-arguments
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -18,7 +15,6 @@ async def claim_next_job(
     sessions: async_sessionmaker[AsyncSession],
     lease_seconds: float,
 ) -> tuple[UUID, int, UUID, str] | None:
-    """Claim the next available checker job."""
     now = datetime.now(timezone.utc)
 
     async with sessions.begin() as tx:
@@ -57,7 +53,6 @@ async def finish_success(
     claim_attempt: int,
     result: CheckResult,
 ) -> bool:
-    """Persist a successful checker result."""
     async with sessions.begin() as tx:
         job = await tx.get(CheckJob, job_id, with_for_update=True)
 
@@ -115,7 +110,6 @@ async def finish_failure(
     retryable: bool,
     max_attempts: int,
 ) -> bool:
-    """Record a checker failure and schedule a retry when allowed."""
     now = datetime.now(timezone.utc)
 
     async with sessions.begin() as tx:
@@ -146,7 +140,6 @@ async def recover_expired_jobs(
     sessions: async_sessionmaker[AsyncSession],
     max_attempts: int,
 ) -> int:
-    """Return expired checker jobs to the queue."""
     now = datetime.now(timezone.utc)
     processed = 0
 

@@ -1,5 +1,3 @@
-"""Application lifespan and service router"""
-
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -15,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan_service_router(_app: FastAPI) -> AsyncGenerator[None]:
-    """Log startup and shutdown of the service router"""
     logger.debug("Lifespan (service router) startup")
     yield
     logger.debug("Lifespan (service router) shutdown")
@@ -23,7 +20,6 @@ async def lifespan_service_router(_app: FastAPI) -> AsyncGenerator[None]:
 
 @asynccontextmanager
 async def lifespan_app(app: FastAPI) -> AsyncGenerator[None]:
-    """Log startup and shutdown of the application"""
     logger.debug("Lifespan (app) startup")
 
     engine, sessions = create_database(get_settings().database_url)

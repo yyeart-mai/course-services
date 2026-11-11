@@ -1,5 +1,3 @@
-"""Web-application factory"""
-
 from collections.abc import Iterable
 from typing import Any
 
@@ -20,7 +18,6 @@ def create_app(
     routers: Iterable[APIRouter],
     **params: Any,
 ) -> FastAPI:
-    """Creates app with given parameters and routers"""
     app_params = {**settings.app.model_dump(), **params}
     app = FastAPI(**app_params)
 

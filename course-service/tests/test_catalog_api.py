@@ -1,5 +1,3 @@
-"""HTTP checks for the course and assignment contract."""
-
 import asyncio
 import os
 import socket

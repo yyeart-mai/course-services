@@ -1,5 +1,3 @@
-"""Provide idempotency operations."""
-
 from uuid import UUID
 
 from fastapi import Request
@@ -19,7 +17,6 @@ IDEMPOTENCY_HEADER = {
 
 
 def get_idempotency_key(request: Request) -> UUID:
-    """Read and validate the required idempotency key."""
     raw = request.headers.get("Idempotency-Key")
 
     if raw is None:

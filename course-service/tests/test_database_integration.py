@@ -1,5 +1,3 @@
-"""Integration checks for the isolated PostgreSQL test service."""
-
 import os
 import subprocess
 import sys

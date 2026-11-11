@@ -1,5 +1,3 @@
-"""Load and cache application settings from the environment."""
-
 import functools
 from typing import final
 
@@ -8,7 +6,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
-    """Define application metadata and debug settings."""
 
     title: str = "Course service title"
     description: str = "Course service description"
@@ -19,7 +16,6 @@ class AppSettings(BaseSettings):
 
 @final
 class Settings(BaseSettings):
-    """Load service configuration from environment variables and .env."""
 
     app: AppSettings
     database_url: str
@@ -33,7 +29,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def check_worker_lease(self) -> Settings:
-        """Ensure a worker lease exceeds the checker timeout."""
         margin_seconds = 5.0
         if self.worker_lease_seconds <= self.checker_timeout_seconds + margin_seconds:
             raise ValueError(
@@ -52,5 +47,4 @@ class Settings(BaseSettings):
 
 @functools.lru_cache
 def get_settings() -> Settings:
-    """Return the cached service settings."""
     return Settings()

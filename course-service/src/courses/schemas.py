@@ -1,5 +1,3 @@
-"""Provide schemas operations."""
-
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -15,7 +13,6 @@ CourseDescription = Annotated[str, StringConstraints(min_length=32, max_length=4
 
 
 class CourseCreate(BaseModel):
-    """Represent CourseCreate data."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -26,7 +23,6 @@ class CourseCreate(BaseModel):
 
 
 class CoursePatch(BaseModel):
-    """Represent CoursePatch data."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -38,12 +34,10 @@ class CoursePatch(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_empty_or_null(cls, value: Any) -> Any:
-        """Reject an empty patch or null field values."""
         return validate_patch_payload(value)
 
 
 class CourseRead(BaseModel):
-    """Represent CourseRead data."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -57,7 +51,6 @@ class CourseRead(BaseModel):
 
 
 class CoursePage(BaseModel):
-    """Represent CoursePage data."""
 
     data: list[CourseRead] = Field(max_length=100)
     pagination: Pagination

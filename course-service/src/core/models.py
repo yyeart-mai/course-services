@@ -1,5 +1,3 @@
-"""Provide models operations."""
-
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -22,11 +20,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    """Base class for database models."""
+    pass
 
 
 class Timestamps:
-    """Represent Timestamps data."""
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -40,7 +37,6 @@ class Timestamps:
 
 
 class User(Base):
-    """Represent User data."""
 
     __tablename__ = "users"
     __table_args__ = (
@@ -55,7 +51,6 @@ class User(Base):
 
 
 class Enrollment(Base):
-    """Represent Enrollment data."""
 
     __tablename__ = "enrollments"
 
@@ -72,7 +67,6 @@ class Enrollment(Base):
 
 
 class Course(Timestamps, Base):
-    """Represent Course data."""
 
     __tablename__ = "courses"
     __table_args__ = (
@@ -96,7 +90,6 @@ class Course(Timestamps, Base):
 
 
 class Assignment(Timestamps, Base):
-    """Represent Assignment data."""
 
     __tablename__ = "assignments"
     __table_args__ = (
@@ -126,7 +119,6 @@ class Assignment(Timestamps, Base):
 
 
 class Submission(Timestamps, Base):
-    """Represent Submission data."""
 
     __tablename__ = "submissions"
     __table_args__ = (
@@ -155,7 +147,6 @@ class Submission(Timestamps, Base):
 
 
 class Review(Timestamps, Base):
-    """Represent Review data."""
 
     __tablename__ = "reviews"
     __table_args__ = (
@@ -177,7 +168,6 @@ class Review(Timestamps, Base):
 
 
 class Artifact(Base):
-    """Represent Artifact data."""
 
     __tablename__ = "artifacts"
     __table_args__ = (
@@ -196,7 +186,6 @@ class Artifact(Base):
 
 
 class IdempotencyRecord(Base):
-    """Represent IdempotencyRecord data."""
 
     __tablename__ = "idempotency_records"
     __table_args__ = (
@@ -225,7 +214,6 @@ class IdempotencyRecord(Base):
 
 
 class CheckJob(Base):
-    """Represent CheckJob data."""
 
     __tablename__ = "check_jobs"
     __table_args__ = (

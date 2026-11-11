@@ -1,5 +1,3 @@
-"""Provide client operations."""
-
 from typing import Literal
 from uuid import UUID
 
@@ -8,7 +6,6 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 class AutoReviewResult(BaseModel):
-    """Represent AutoReviewResult data."""
 
     feedback: str
     mark: float = Field(ge=0, le=10, multiple_of=0.01)
@@ -16,7 +13,6 @@ class AutoReviewResult(BaseModel):
 
 
 class ArtifactResult(BaseModel):
-    """Represent ArtifactResult data."""
 
     name: str = Field(min_length=1)
     content_type: str = Field(min_length=1)
@@ -24,7 +20,6 @@ class ArtifactResult(BaseModel):
 
 
 class CheckResult(BaseModel):
-    """Represent CheckResult data."""
 
     submission_id: UUID
     status: Literal["COMPLETED"]
@@ -38,7 +33,6 @@ async def call_checker(
     submission_id: UUID,
     repository_url: str,
 ) -> CheckResult:
-    """Call the external checker and validate its response."""
     response = await client.post(
         checker_url,
         json={

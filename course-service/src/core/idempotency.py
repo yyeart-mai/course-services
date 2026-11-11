@@ -1,7 +1,4 @@
-"""Provide idempotency operations."""
-
 # Creation context and callbacks are supplied as separate arguments.
-# pylint: disable=too-many-arguments
 
 import hashlib
 import json
@@ -18,7 +15,6 @@ from src.web.errors import ApiError
 
 @dataclass(frozen=True)
 class CreatedResponse:
-    """Represent CreatedResponse data."""
 
     status: int
     body: dict[Any, Any]
@@ -26,7 +22,6 @@ class CreatedResponse:
 
 
 def request_hash(payload: dict[str, Any]) -> str:
-    """Hash a canonical JSON request for idempotency."""
     canonical = json.dumps(
         payload,
         sort_keys=True,
@@ -47,7 +42,6 @@ async def create_once(
     authorize: Callable[[AsyncSession], Awaitable[None]],
     create: Callable[[AsyncSession], Awaitable[CreatedResponse]],
 ) -> CreatedResponse:
-    """Create a resource once for each idempotency key."""
     body_hash = request_hash(payload)
     scope = f"{user_id}:{method}:{path}:{key}"
     lock_key = int.from_bytes(

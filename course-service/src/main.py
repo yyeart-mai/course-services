@@ -1,5 +1,3 @@
-"""Configure logging and expose the application"""
-
 import logging
 import logging.config
 
@@ -18,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> FastAPI:
-    """Build and configure the FastAPI application."""
     with open("log-config.yaml", "r", encoding="UTF-8") as f:
         log_config = yaml.safe_load(f)
         logging.config.dictConfig(log_config)

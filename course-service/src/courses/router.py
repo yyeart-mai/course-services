@@ -1,8 +1,5 @@
-"""Provide course routes."""
-
 # FastAPI signatures and path parameter names follow the public API contract.
 # The shared route shape is intentional.
-# pylint: disable=too-many-arguments,too-many-positional-arguments,redefined-builtin,duplicate-code
 
 from typing import Annotated
 from uuid import UUID
@@ -48,7 +45,6 @@ async def list_courses(
     status: CourseStatus | None = None,
     teacher_id: UUID | None = None,
 ) -> CoursePage:
-    """List courses."""
     courses = await service.list_courses(
         session,
         principal,
@@ -76,7 +72,6 @@ async def create_course(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     key: Annotated[UUID, Depends(get_idempotency_key)],
 ) -> JSONResponse:
-    """Create course."""
     result = await service.create_course(session, principal, body, key)
 
     return JSONResponse(
@@ -99,7 +94,6 @@ async def get_course(
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> CourseRead:
-    """Get course."""
     course = await service.get_course(session, id, principal)
 
     return course
@@ -117,7 +111,6 @@ async def update_course(
     principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> CourseRead:
-    """Update course."""
     raw = await request.json()
 
     if principal.role == "professor" and isinstance(raw, dict) and "teacher_id" in raw:
@@ -144,7 +137,6 @@ async def delete_course(
     principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
-    """Delete course."""
     await service.delete_course(session, id, principal)
 
     return Response(status_code=204)

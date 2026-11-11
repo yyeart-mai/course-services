@@ -1,5 +1,3 @@
-"""Provide errors operations."""
-
 from typing import Any
 
 from fastapi import Request
@@ -9,7 +7,6 @@ from pydantic import BaseModel
 
 
 class ErrorDetail(BaseModel):
-    """Represent ErrorDetail data."""
 
     code: str
     message: str
@@ -19,13 +16,11 @@ class ErrorDetail(BaseModel):
 
 
 class ErrorEnvelope(BaseModel):
-    """Represent ErrorEnvelope data."""
 
     error: ErrorDetail
 
 
 def documented_errors(*statuses: int) -> dict[int | str, dict[str, Any]]:
-    """Describe the error responses for an API route."""
     errors: dict[int | str, dict[str, Any]] = {
         status: {"model": ErrorEnvelope} for status in statuses
     }
@@ -35,7 +30,6 @@ def documented_errors(*statuses: int) -> dict[int | str, dict[str, Any]]:
 
 
 class ApiError(Exception):
-    """Represent ApiError data."""
 
     def __init__(self, status: int, code: str, message: str):
         self.status = status
@@ -46,7 +40,6 @@ class ApiError(Exception):
 def error_response(
     request: Request, status: int, code: str, message: str
 ) -> JSONResponse:
-    """Build a contract-shaped error response."""
     headers = {"WWW-Authenticate": "Bearer"} if status == 401 else {}
     return JSONResponse(
         status_code=status,
@@ -64,14 +57,12 @@ def error_response(
 
 
 async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
-    """Convert an application error to an HTTP response."""
     return error_response(request, exc.status, exc.code, exc.message)
 
 
 async def validation_error_handler(
     request: Request, _exc: RequestValidationError
 ) -> JSONResponse:
-    """Convert a validation error to an HTTP response."""
     return error_response(
         request, 422, "VALIDATION_ERROR", "Invalid request parameters"
     )
