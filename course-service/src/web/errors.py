@@ -29,6 +29,19 @@ def documented_errors(*statuses: int) -> dict[int | str, dict[str, Any]]:
     return errors
 
 
+def documented_created(*error_statuses: int) -> dict[int | str, dict[str, Any]]:
+    responses = documented_errors(*error_statuses)
+    responses[201] = {
+        "headers": {
+            "Location": {
+                "description": "Path to the created resource",
+                "schema": {"type": "string"},
+            }
+        }
+    }
+    return responses
+
+
 class ApiError(Exception):
 
     def __init__(self, status: int, code: str, message: str):

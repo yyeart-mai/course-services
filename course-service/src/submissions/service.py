@@ -12,6 +12,7 @@ from src.courses.service import require_course_access
 from src.submissions.schemas import ArtifactRead, SubmissionCreate, SubmissionRead
 from src.web.dependencies import Principal
 from src.web.errors import ApiError
+from src.core.roles import Role
 
 
 async def require_submission_access(
@@ -21,14 +22,14 @@ async def require_submission_access(
     *,
     lock: bool = False,
 ) -> Submission:
-    if principal.role == "admin":
+    if principal.role == Role.ADMIN:
         raise ApiError(403, "ACCESS_DENIED", "No access to this submission")
 
     submission = await session.get(Submission, submission_id, with_for_update=lock)
     if submission is None:
         raise ApiError(404, "SUBMISSION_NOT_FOUND", "Submission not found")
 
-    if principal.role == "student":
+    if principal.role == Role.STUDENT:
         if principal.id != submission.student_id:
             raise ApiError(403, "ACCESS_DENIED", "No access to this submission")
     else:

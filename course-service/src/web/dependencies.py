@@ -10,13 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.config import Settings, get_settings
 from src.web.errors import ApiError
+from src.core.roles import Role
 
 
 @dataclass
 class Principal:
 
     id: UUID
-    role: str
+    role: Role
 
 
 bearer = HTTPBearer(auto_error=False, scheme_name="bearerAuth")
@@ -40,9 +41,7 @@ async def get_principal(
             options={"require": ["sub", "exp"]},
         )
         user_id = UUID(claims["sub"])
-        role = claims["role"]
-        if role not in {"admin", "professor", "student"}:
-            raise ValueError("unknown role")
+        role = Role(claims["role"])
 
     except jwt.ExpiredSignatureError as e:
         raise ApiError(401, "TOKEN_EXPIRED", "Token is expired") from e
@@ -53,8 +52,7 @@ async def get_principal(
     return Principal(id=user_id, role=role)
 
 
-def require_roles(*allowed: str) -> Callable[[Principal], Awaitable[Principal]]:
-
+def require_roles(*allowed: Role) -> Callable[[Principal], Awaitable[Principal]]:
     async def check(
         principal: Annotated[Principal, Depends(get_principal)],
     ) -> Principal:

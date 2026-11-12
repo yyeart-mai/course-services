@@ -1,5 +1,3 @@
-# Creation context and callbacks are supplied as separate arguments.
-
 import hashlib
 import json
 from dataclasses import dataclass

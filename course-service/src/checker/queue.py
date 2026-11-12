@@ -1,5 +1,3 @@
-# Failure handling receives claim details and retry policy separately.
-
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID

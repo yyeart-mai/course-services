@@ -1,5 +1,3 @@
-# FastAPI signatures and path parameter names follow the public API contract.
-
 from typing import Annotated
 from uuid import UUID
 
@@ -15,9 +13,10 @@ from src.assignments.schemas import (
     AssignmentRead,
 )
 from src.web.dependencies import Principal, get_db_session, require_roles
-from src.web.errors import documented_errors
+from src.web.errors import documented_created, documented_errors
 from src.web.idempotency import IDEMPOTENCY_HEADER, get_idempotency_key
 from src.web.pagination import SortOrder
+from src.core.roles import Role
 
 assignments_router = APIRouter(prefix="/api/v1/assignments", tags=["Assignments"])
 
@@ -30,7 +29,7 @@ assignments_router = APIRouter(prefix="/api/v1/assignments", tags=["Assignments"
 )
 async def list_assignments(
     principal: Annotated[
-        Principal, Depends(require_roles("admin", "professor", "student"))
+        Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR, Role.STUDENT))
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -54,13 +53,13 @@ async def list_assignments(
     "",
     response_model=AssignmentRead,
     status_code=201,
-    responses=documented_errors(401, 403, 404, 409, 422),
+    responses=documented_created(401, 403, 404, 409, 422),
     openapi_extra=IDEMPOTENCY_HEADER,
     operation_id="create_assignment",
 )
 async def create_assignment(
     body: AssignmentCreate,
-    principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     key: Annotated[UUID, Depends(get_idempotency_key)],
 ) -> JSONResponse:
@@ -82,7 +81,7 @@ async def create_assignment(
 async def get_assignment(
     id: UUID,
     principal: Annotated[
-        Principal, Depends(require_roles("admin", "professor", "student"))
+        Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR, Role.STUDENT))
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AssignmentRead:
@@ -100,7 +99,7 @@ async def get_assignment(
 async def update_assignment(
     id: UUID,
     body: AssignmentPatch,
-    principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AssignmentRead:
     updated_assignment = await service.update_assignment(session, id, principal, body)
@@ -116,7 +115,7 @@ async def update_assignment(
 )
 async def delete_assignment(
     id: UUID,
-    principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
     await service.delete_assignment(session, id, principal)

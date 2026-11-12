@@ -1,6 +1,4 @@
-# FastAPI signatures and path parameter names follow the public API contract.
-# The shared route shape is intentional.
-
+import json
 from typing import Annotated
 from uuid import UUID
 
@@ -18,9 +16,11 @@ from src.courses.schemas import (
     CourseStatus,
 )
 from src.web.dependencies import Principal, get_db_session, require_roles
-from src.web.errors import ApiError, documented_errors
+from src.web.errors import ApiError, documented_created, documented_errors
 from src.web.idempotency import IDEMPOTENCY_HEADER, get_idempotency_key
 from src.web.pagination import SortOrder
+from src.core.roles import Role
+
 
 courses_router = APIRouter(
     prefix="/api/v1/courses",
@@ -36,7 +36,7 @@ courses_router = APIRouter(
 )
 async def list_courses(
     principal: Annotated[
-        Principal, Depends(require_roles("admin", "professor", "student"))
+        Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR, Role.STUDENT))
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -62,13 +62,13 @@ async def list_courses(
     "",
     response_model=CourseRead,
     status_code=201,
-    responses=documented_errors(401, 403, 404, 409, 422),
+    responses=documented_created(401, 403, 404, 409, 422),
     openapi_extra=IDEMPOTENCY_HEADER,
     operation_id="create_course",
 )
 async def create_course(
     body: CourseCreate,
-    principal: Annotated[Principal, Depends(require_roles("admin"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.ADMIN))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     key: Annotated[UUID, Depends(get_idempotency_key)],
 ) -> JSONResponse:
@@ -90,7 +90,7 @@ async def create_course(
 async def get_course(
     id: UUID,
     principal: Annotated[
-        Principal, Depends(require_roles("admin", "professor", "student"))
+        Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR, Role.STUDENT))
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> CourseRead:
@@ -98,22 +98,36 @@ async def get_course(
 
     return course
 
+patchRequestBody = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": CoursePatch.model_json_schema()
+            }
+        },
+    }
+}
 
 @courses_router.patch(
     "/{id}",
     response_model=CourseRead,
     responses=documented_errors(401, 403, 404, 422),
     operation_id="update_course",
+    openapi_extra=patchRequestBody,
 )
 async def update_course(
     id: UUID,
     request: Request,
-    principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> CourseRead:
-    raw = await request.json()
+    try:
+        raw = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise ApiError(422, "VALIDATION_ERROR", "Invalid JSON") from e
 
-    if principal.role == "professor" and isinstance(raw, dict) and "teacher_id" in raw:
+    if principal.role == Role.PROFESSOR and isinstance(raw, dict) and "teacher_id" in raw:
         raise ApiError(403, "ACCESS_DENIED", "Only admin can change teacher_id")
 
     try:
@@ -134,7 +148,7 @@ async def update_course(
 )
 async def delete_course(
     id: UUID,
-    principal: Annotated[Principal, Depends(require_roles("admin", "professor"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.ADMIN, Role.PROFESSOR))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> Response:
     await service.delete_course(session, id, principal)

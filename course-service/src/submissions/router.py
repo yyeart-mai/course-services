@@ -10,8 +10,9 @@ from src.reviews.schemas import ReviewCreate, ReviewPatch, ReviewRead
 from src.submissions import service
 from src.submissions.schemas import ArtifactRead, SubmissionCreate, SubmissionRead
 from src.web.dependencies import Principal, get_db_session, require_roles
-from src.web.errors import documented_errors
+from src.web.errors import documented_created, documented_errors
 from src.web.idempotency import IDEMPOTENCY_HEADER, get_idempotency_key
+from src.core.roles import Role
 
 submissions_router = APIRouter(
     prefix="/api/v1/submissions",
@@ -22,14 +23,14 @@ submissions_router = APIRouter(
     "",
     response_model=SubmissionRead,
     status_code=201,
-    responses=documented_errors(401, 403, 404, 409, 422),
+    responses=documented_created(401, 403, 404, 409, 422),
     openapi_extra=IDEMPOTENCY_HEADER,
     operation_id="create_submission",
     tags=["Submissions"],
 )
 async def create_submission(
     body: SubmissionCreate,
-    principal: Annotated[Principal, Depends(require_roles("student"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.STUDENT))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     key: Annotated[UUID, Depends(get_idempotency_key)],
 ) -> JSONResponse:
@@ -52,7 +53,7 @@ async def create_submission(
 async def get_submission(
     id: UUID,
     request: Request,
-    principal: Annotated[Principal, Depends(require_roles("professor", "student"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.PROFESSOR, Role.STUDENT))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> SubmissionRead:
     artifacts_url = str(request.url_for("get_artifacts", id=id))
@@ -70,7 +71,7 @@ async def get_submission(
 )
 async def get_artifacts(
     id: UUID,
-    principal: Annotated[Principal, Depends(require_roles("professor", "student"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.PROFESSOR, Role.STUDENT))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> list[ArtifactRead]:
     artifacts = await service.get_artifacts(session, id, principal)
@@ -87,7 +88,7 @@ async def get_artifacts(
 )
 async def get_review(
     id: UUID,
-    principal: Annotated[Principal, Depends(require_roles("professor", "student"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.PROFESSOR, Role.STUDENT))],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ReviewRead:
     review = await reviews_service.get_review(session, id, principal)
@@ -99,14 +100,14 @@ async def get_review(
     "/{id}/review",
     response_model=ReviewRead,
     status_code=201,
-    responses=documented_errors(401, 403, 404, 409, 422),
+    responses=documented_created(401, 403, 404, 409, 422),
     openapi_extra=IDEMPOTENCY_HEADER,
     operation_id="create_review",
     tags=["Reviews"],
 )
 async def create_review(
     id: UUID,
-    principal: Annotated[Principal, Depends(require_roles("professor"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.PROFESSOR))],
     body: ReviewCreate,
     session: Annotated[AsyncSession, Depends(get_db_session)],
     key: Annotated[UUID, Depends(get_idempotency_key)],
@@ -129,7 +130,7 @@ async def create_review(
 )
 async def update_review(
     id: UUID,
-    principal: Annotated[Principal, Depends(require_roles("professor"))],
+    principal: Annotated[Principal, Depends(require_roles(Role.PROFESSOR))],
     body: ReviewPatch,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ReviewRead:

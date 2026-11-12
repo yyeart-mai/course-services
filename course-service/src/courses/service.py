@@ -1,6 +1,3 @@
-# Pagination and filter fields match the public route parameters.
-# SQLAlchemy builds func.count dynamically.
-
 from uuid import UUID
 
 from sqlalchemy import and_, delete, func, select, true
@@ -19,12 +16,13 @@ from src.courses.schemas import (
 from src.web.dependencies import Principal
 from src.web.errors import ApiError
 from src.web.pagination import Pagination, SortOrder
+from src.core.roles import Role
 
 
 def visible_course_condition(principal: Principal) -> ColumnElement[bool]:
-    if principal.role == "admin":
+    if principal.role == Role.ADMIN:
         return true()
-    if principal.role == "professor":
+    if principal.role == Role.PROFESSOR:
         return Course.teacher_id == principal.id
     enrolled = select(Enrollment.course_id).where(
         Enrollment.course_id == Course.id,
@@ -43,11 +41,11 @@ async def require_course_access(
     course = await session.get(Course, course_id, with_for_update=lock)
     if course is None:
         raise ApiError(404, "COURSE_NOT_FOUND", "Course not found")
-    if principal.role == "admin":
+    if principal.role == Role.ADMIN:
         return course
-    if principal.role == "professor" and course.teacher_id == principal.id:
+    if principal.role == Role.PROFESSOR and course.teacher_id == principal.id:
         return course
-    if principal.role == "student" and course.status != "DRAFT":
+    if principal.role == Role.STUDENT and course.status != "DRAFT":
         enrollment = await session.get(Enrollment, (principal.id, course_id))
         if enrollment is not None:
             return course
@@ -58,7 +56,7 @@ async def require_teacher(session: AsyncSession, teacher_id: UUID) -> None:
     teacher = await session.get(User, teacher_id)
     if teacher is None:
         raise ApiError(404, "TEACHER_NOT_FOUND", "Teacher not found")
-    if teacher.role != "professor":
+    if teacher.role != Role.PROFESSOR:
         raise ApiError(422, "TEACHER_ROLE_REQUIRED", "Teacher must be a professor")
 
 
@@ -145,7 +143,7 @@ async def update_course(
     body: CoursePatch,
 ) -> CourseRead:
     changes = body.model_dump(exclude_unset=True)
-    if principal.role == "professor" and "teacher_id" in changes:
+    if principal.role == Role.PROFESSOR and "teacher_id" in changes:
         raise ApiError(403, "ACCESS_DENIED", "Only admin can change teacher_id")
 
     async with session.begin():

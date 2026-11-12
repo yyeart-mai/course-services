@@ -1,6 +1,3 @@
-# Pagination and filter fields match the public route parameters.
-# SQLAlchemy builds func.count dynamically.
-
 from uuid import UUID
 
 from sqlalchemy import and_, func, select
